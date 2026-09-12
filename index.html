@@ -53,6 +53,72 @@
     .tab-content { display: none; }
     .tab-content.active { display: block; }
 
+    .search-bar {
+      display: flex; align-items: center; gap: 0.6rem;
+      background: #ffffffcc; border-radius: 3rem;
+      padding: 0.5rem 0.5rem 0.5rem 1.3rem;
+      margin-bottom: 1.5rem;
+      border: 1.5px solid #cbdae8;
+      transition: 0.15s;
+      flex-wrap: wrap;
+    }
+    .search-bar:focus-within {
+      border-color: #2c7be5;
+      box-shadow: 0 0 0 4px rgba(44, 123, 229, 0.15);
+    }
+    .search-bar .search-icon {
+      font-size: 1.1rem;
+      flex-shrink: 0;
+      color: #5c7b9c;
+    }
+    .search-bar input {
+      flex: 1;
+      min-width: 180px;
+      border: none;
+      background: transparent;
+      font-size: 0.95rem;
+      font-weight: 500;
+      color: #153e5a;
+      outline: none;
+      padding: 0.4rem 0;
+    }
+    .search-bar input::placeholder {
+      color: #9eb7cf;
+      font-weight: 400;
+    }
+    .search-result-info {
+      font-size: 0.8rem;
+      color: #1e5c8b;
+      font-weight: 600;
+      background: #e2effb;
+      padding: 0.3rem 0.9rem;
+      border-radius: 3rem;
+      white-space: nowrap;
+    }
+    .search-clear-btn {
+      background: #edf4fc;
+      border: 1px solid #bed6ec;
+      color: #1b3c5c;
+      padding: 0.5rem 1.1rem;
+      border-radius: 3rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: 0.15s;
+      white-space: nowrap;
+    }
+    .search-clear-btn:hover { background: #dde9f7; }
+    .no-match-tip {
+      color: #9eb7cf;
+      font-style: italic;
+      font-size: 0.9rem;
+      text-align: center;
+      padding: 2rem 0;
+      background: #f6faff;
+      border-radius: 1.8rem;
+      border: 1px dashed #d4e2f0;
+    }
+
     .rank-panel {
       background: white; border-radius: 1.8rem; padding: 1.5rem;
       margin-bottom: 1.5rem; border: 1px solid #dbe9f5;
@@ -162,6 +228,11 @@
       border: 1px solid #dbe9f5; display: flex;
       flex-wrap: wrap; align-items: center; gap: 1rem;
     }
+    .person-card.highlight {
+      border-color: #f5d67a;
+      background: linear-gradient(135deg, #fffdf5, #ffffff);
+      box-shadow: 0 6px 20px rgba(245, 200, 60, 0.25);
+    }
     .person-info { flex: 2 1 220px; }
     .person-name { font-size: 1.3rem; font-weight: 700; color: #0a2d4a; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
     .person-name .badge {
@@ -240,7 +311,16 @@
       <button class="tab-btn" data-tab="rank">🏆 排行榜</button>
     </div>
 
+    <!-- ========== Tab 1: 积分管理 ========== -->
     <div class="tab-content active" id="tab-manage">
+      <!-- 搜索栏 -->
+      <div class="search-bar">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="searchInput" placeholder="搜索成员名字或小队名字..." />
+        <span class="search-result-info" id="searchInfo" style="display:none;"></span>
+        <button class="search-clear-btn" id="searchClearBtn" style="display:none;">✕ 清空</button>
+      </div>
+
       <div class="team-manager">
         <h3>🛡️ 小队管理</h3>
         <div class="team-list" id="teamList"></div>
@@ -277,6 +357,7 @@
       </div>
     </div>
 
+    <!-- ========== Tab 2: 排行榜 ========== -->
     <div class="tab-content" id="tab-rank">
       <div class="rank-panel">
         <h3 class="rank-title">🏅 个人排行榜 <span style="font-size:0.75rem; font-weight:500; color:#7999b6;">（按历史最高积分排序）</span></h3>
@@ -306,6 +387,7 @@
     let globalHistory = [];
     let supabase = null;
     let channel = null;
+    let searchKeyword = '';
 
     const personsContainer = document.getElementById('personsContainer');
     const newPersonName = document.getElementById('newPersonName');
@@ -321,6 +403,9 @@
     const teamList = document.getElementById('teamList');
     const newTeamName = document.getElementById('newTeamName');
     const addTeamBtn = document.getElementById('addTeamBtn');
+    const searchInput = document.getElementById('searchInput');
+    const searchInfo = document.getElementById('searchInfo');
+    const searchClearBtn = document.getElementById('searchClearBtn');
 
     document.querySelectorAll('.tab-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -410,9 +495,13 @@
             history: globalHistory,
             updated_at: new Date().toISOString()
           }, { onConflict: 'id' });
-        if (error) throw error;
+        if (error) {
+          console.error('保存失败:', error);
+          updateConnectionStatus(false, '保存失败');
+          setTimeout(() => updateConnectionStatus(true, '已连接'), 2000);
+        }
       } catch (err) {
-        console.error('保存失败:', err);
+        console.error('保存异常:', err);
         updateConnectionStatus(false, '保存失败');
         setTimeout(() => updateConnectionStatus(true, '已连接'), 2000);
       }
@@ -445,7 +534,16 @@
       return 't' + Date.now() + Math.random().toString(36).slice(2, 6);
     }
 
-    // ---------- 积分操作 ----------
+    function getFilteredPersons() {
+      if (!searchKeyword) return persons;
+      return persons.filter(p => {
+        const team = findTeamById(p.teamId);
+        const teamName = team ? team.name : '';
+        return p.name.toLowerCase().includes(searchKeyword) ||
+               teamName.toLowerCase().includes(searchKeyword);
+      });
+    }
+
     function addPointsToPerson(name, amount) {
       const idx = findPersonIndex(name);
       if (idx === -1) return false;
@@ -479,7 +577,6 @@
       return true;
     }
 
-    // ---------- 渲染队伍 ----------
     function renderTeams() {
       if (teams.length === 0) {
         teamList.innerHTML = '<span style="color:#9eb7cf; font-size:0.85rem; font-style:italic;">还没有小队，下面创建一个吧</span>';
@@ -513,18 +610,36 @@
       });
     }
 
-    // ---------- 渲染成员 ----------
     function renderPersons() {
+      const filtered = getFilteredPersons();
+
+      if (searchKeyword) {
+        searchInfo.style.display = 'inline-block';
+        searchClearBtn.style.display = 'inline-block';
+        searchInfo.textContent = `找到 ${filtered.length} 个`;
+      } else {
+        searchInfo.style.display = 'none';
+        searchClearBtn.style.display = 'none';
+      }
+
       if (persons.length === 0) {
         personsContainer.innerHTML = '<div class="empty-state">还没有任何名称，请先添加</div>';
         renderTeams();
         return;
       }
+
+      if (filtered.length === 0) {
+        personsContainer.innerHTML = `<div class="no-match-tip">🔍 没有找到匹配「${escapeHtml(searchInput.value)}」的成员或小队</div>`;
+        renderTeams();
+        return;
+      }
+
       let html = '';
-      persons.forEach(p => {
+      filtered.forEach(p => {
         const team = findTeamById(p.teamId);
+        const isHighlight = searchKeyword ? 'highlight' : '';
         html += `
-          <div class="person-card" data-name="${escapeHtml(p.name)}">
+          <div class="person-card ${isHighlight}" data-name="${escapeHtml(p.name)}">
             <div class="person-info">
               <div class="person-name">
                 ${escapeHtml(p.name)}
@@ -549,231 +664,4 @@
             <div class="person-actions">
               <div class="action-group">
                 <input type="number" class="add-input" value="10" step="1" min="0" />
-                <button class="btn small add-btn" data-name="${escapeHtml(p.name)}">➕ 增加</button>
-              </div>
-              <div class="action-group">
-                <input type="number" class="normal-input" value="5" step="1" min="0" />
-                <button class="btn small secondary normal-btn" data-name="${escapeHtml(p.name)}">普通扣除</button>
-              </div>
-              <div class="action-group">
-                <input type="number" class="ticket-input" value="5" step="1" min="0" />
-                <button class="btn small ticket-btn" style="background:#8b5e00;" data-name="${escapeHtml(p.name)}">🎫 门票扣除</button>
-              </div>
-            </div>
-          </div>
-        `;
-      });
-      personsContainer.innerHTML = html;
-
-      personsContainer.onclick = e => {
-        const target = e.target.closest('button');
-        if (!target) return;
-        const name = target.getAttribute('data-name');
-        if (!name) return;
-
-        if (target.classList.contains('add-btn')) {
-          const val = Number(target.closest('.action-group').querySelector('.add-input').value);
-          if (isNaN(val) || val <= 0) { alert('请输入大于0的积分'); return; }
-          if (addPointsToPerson(name, val)) { updateAllUI(); saveToCloud(); }
-        } else if (target.classList.contains('normal-btn')) {
-          const val = Number(target.closest('.action-group').querySelector('.normal-input').value);
-          if (isNaN(val) || val <= 0) { alert('请输入大于0的扣除积分'); return; }
-          if (normalDeduct(name, val)) { updateAllUI(); saveToCloud(); }
-        } else if (target.classList.contains('ticket-btn')) {
-          const val = Number(target.closest('.action-group').querySelector('.ticket-input').value);
-          if (isNaN(val) || val <= 0) { alert('请输入大于0的门票扣除积分'); return; }
-          if (ticketDeduct(name, val)) { updateAllUI(); saveToCloud(); }
-        }
-      };
-
-      document.querySelectorAll('.member-team-select').forEach(sel => {
-        sel.addEventListener('change', (e) => {
-          const personName = sel.getAttribute('data-name');
-          const personIdx = findPersonIndex(personName);
-          if (personIdx === -1) return;
-          persons[personIdx].teamId = e.target.value;
-          updateAllUI();
-          saveToCloud();
-        });
-      });
-    }
-
-    // ---------- 渲染历史 ----------
-    function renderGlobalHistory() {
-      if (globalHistory.length === 0) {
-        globalHistoryList.innerHTML = '<div class="empty-state">暂无操作记录</div>';
-        historyCount.textContent = '0 条记录';
-        return;
-      }
-      const reversed = [...globalHistory].reverse();
-      let html = '';
-      reversed.forEach(log => {
-        let typeClass = '', typeText = '', amountText = '';
-        if (log.type === 'add') { typeClass = 'positive'; amountText = `+${log.amount}`; typeText = '新增积分'; }
-        else if (log.type === 'normal') { typeClass = 'negative'; amountText = `-${log.amount}`; typeText = '普通扣除'; }
-        else if (log.type === 'ticket') { typeClass = 'ticket'; amountText = `-${log.amount}`; typeText = '门票扣除'; }
-        html += `
-          <div class="history-item">
-            <span class="who">${escapeHtml(log.name)}</span>
-            <span class="what">${typeText}</span>
-            <span class="points-change ${typeClass}">${amountText}</span>
-            <span style="font-size:0.7rem; color:#7999b6;">🕒 ${log.timestamp}</span>
-          </div>
-        `;
-      });
-      globalHistoryList.innerHTML = html;
-      historyCount.textContent = `${globalHistory.length} 条记录`;
-    }
-
-    // ---------- 渲染排行榜 ----------
-    function renderPersonalRank() {
-      if (persons.length === 0) {
-        personalRankList.innerHTML = '<div class="rank-empty">暂无数据</div>';
-        return;
-      }
-      const sorted = [...persons].sort((a, b) => b.maxPoints - a.maxPoints);
-      let html = '';
-      sorted.forEach((p, i) => {
-        let medal = '', rankClass = '';
-        if (i === 0) { medal = '🥇'; rankClass = 'top1'; }
-        else if (i === 1) { medal = '🥈'; rankClass = 'top2'; }
-        else if (i === 2) { medal = '🥉'; rankClass = 'top3'; }
-        else { medal = `#${i + 1}`; }
-        const team = findTeamById(p.teamId);
-        html += `
-          <div class="rank-item ${rankClass}">
-            <div class="rank-medal">${medal}</div>
-            <div class="rank-info">
-              <div class="rank-name">
-                ${escapeHtml(p.name)}
-                ${team ? `<span class="team-tag">🛡️ ${escapeHtml(team.name)}</span>` : ''}
-              </div>
-              <div class="rank-sub">剩余积分 ${p.remainingPoints}</div>
-            </div>
-            <div class="rank-score">
-              ${p.maxPoints}
-              <small>最高积分</small>
-            </div>
-          </div>
-        `;
-      });
-      personalRankList.innerHTML = html;
-    }
-
-    function renderTeamRank() {
-      const teamMap = {};
-      teams.forEach(t => {
-        teamMap[t.id] = { id: t.id, name: t.name, total: 0, members: [] };
-      });
-      persons.forEach(p => {
-        if (p.teamId && teamMap[p.teamId]) {
-          teamMap[p.teamId].total += p.maxPoints;
-          teamMap[p.teamId].members.push(p.name);
-        }
-      });
-      const teamArr = Object.values(teamMap).sort((a, b) => b.total - a.total);
-
-      if (teamArr.length === 0) {
-        teamRankList.innerHTML = '<div class="rank-empty">还没有任何小队，先创建一个小队吧</div>';
-        return;
-      }
-
-      let html = '';
-      teamArr.forEach((t, i) => {
-        let medal = '', rankClass = '';
-        if (i === 0) { medal = '🥇'; rankClass = 'top1'; }
-        else if (i === 1) { medal = '🥈'; rankClass = 'top2'; }
-        else if (i === 2) { medal = '🥉'; rankClass = 'top3'; }
-        else { medal = `#${i + 1}`; }
-        html += `
-          <div class="rank-item ${rankClass}">
-            <div class="rank-medal">${medal}</div>
-            <div class="rank-info">
-              <div class="rank-name">🛡️ ${escapeHtml(t.name)}</div>
-              <div class="rank-sub">队员：${t.members.length ? t.members.map(escapeHtml).join('、') : '暂无成员'}</div>
-            </div>
-            <div class="rank-score">
-              ${t.total}
-              <small>小队总分</small>
-            </div>
-          </div>
-        `;
-      });
-      teamRankList.innerHTML = html;
-    }
-
-    function updateAllUI() {
-      renderPersons();
-      renderGlobalHistory();
-      renderPersonalRank();
-      renderTeamRank();
-      renderTeams();
-    }
-
-    // ---------- 操作 ----------
-    function addPerson() {
-      const name = newPersonName.value.trim();
-      const teamId = newPersonTeam.value;
-      if (name === '') { alert('请输入名称'); return; }
-      if (persons.some(p => p.name === name)) { alert('该名称已存在'); return; }
-      persons.push({ name, maxPoints: 0, remainingPoints: 0, teamId });
-      newPersonName.value = '';
-      updateAllUI();
-      saveToCloud();
-    }
-
-    function addTeam() {
-      const name = newTeamName.value.trim();
-      if (name === '') { alert('请输入小队名字'); return; }
-      if (teams.some(t => t.name === name)) { alert('该小队名字已存在'); return; }
-      teams.push({ id: generateId(), name });
-      newTeamName.value = '';
-      updateAllUI();
-      saveToCloud();
-    }
-
-    function deleteTeam(teamId) {
-      const team = findTeamById(teamId);
-      if (!team) return;
-      const members = persons.filter(p => p.teamId === teamId);
-      const msg = members.length
-        ? `确定删除小队「${team.name}」吗？队内 ${members.length} 名成员将变为「无小队」。`
-        : `确定删除小队「${team.name}」吗？`;
-      if (!confirm(msg)) return;
-      teams = teams.filter(t => t.id !== teamId);
-      persons.forEach(p => { if (p.teamId === teamId) p.teamId = ''; });
-      updateAllUI();
-      saveToCloud();
-    }
-
-    function resetAll() {
-      if (!confirm('确定要清空所有名称、小队和积分记录吗？')) return;
-      persons = [];
-      teams = [];
-      globalHistory = [];
-      updateAllUI();
-      saveToCloud();
-    }
-
-    // 事件绑定
-    addPersonBtn.addEventListener('click', addPerson);
-    newPersonName.addEventListener('keypress', e => {
-      if (e.key === 'Enter') { e.preventDefault(); addPerson(); }
-    });
-    addTeamBtn.addEventListener('click', addTeam);
-    newTeamName.addEventListener('keypress', e => {
-      if (e.key === 'Enter') { e.preventDefault(); addTeam(); }
-    });
-    resetAllBtn.addEventListener('click', resetAll);
-
-    // 删除小队（事件委托）
-    teamList.addEventListener('click', e => {
-      const btn = e.target.closest('button[data-team-id]');
-      if (!btn) return;
-      deleteTeam(btn.getAttribute('data-team-id'));
-    });
-
-    init();
-  </script>
-</body>
-</html>
+                <button class="btn small add-btn" data-name="${escapeHtml(p.name)}">
