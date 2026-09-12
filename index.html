@@ -47,7 +47,7 @@
   .btn.sm { padding: 0.4rem 0.9rem; font-size: 0.8rem; }
 
   .persons { display: flex; flex-direction: column; gap: 1rem; max-height: 520px; overflow-y: auto; padding-right: 6px; }
-  .person { background: white; border-radius: 1.5rem; padding: 1rem 1.3rem; border: 1px solid #dbe9f5; display: flex; flex-wrap: wrap; gap: 0.8rem; align-items: center; box-shadow: 0 4px 12px rgba(0,30,60,0.06); }
+  .person { background: white; border-radius: 1.5rem; padding: 1rem 1.3rem; border: 1px solid #dbe9f5; display: flex; flex-wrap: wrap; gap: 0.8rem; align-items: center; box-shadow: 0 4px 12px rgba(0,30,60,0.06); position: relative; }
   .person.hl { border-color: #f5d67a; background: linear-gradient(135deg, #fffdf5, #fff); }
   .pinfo { flex: 2 1 220px; }
   .pname { font-size: 1.2rem; font-weight: 700; color: #0a2d4a; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
@@ -61,6 +61,28 @@
   .pact { flex: 3 1 380px; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; justify-content: flex-end; }
   .ag { display: flex; align-items: center; gap: 0.3rem; background: #f6faff; padding: 0.25rem 0.25rem 0.25rem 0.9rem; border-radius: 3rem; border: 1px solid #d4e2f0; }
   .ag input { width: 75px; padding: 0.45rem 0.5rem; border: 1px solid #cbdae8; border-radius: 2rem; font-size: 0.85rem; text-align: center; font-weight: 600; outline: none; }
+
+  .del-person-btn {
+    position: absolute;
+    top: 0.7rem;
+    right: 0.8rem;
+    background: #ffe9e9;
+    border: 1px solid #f7c1c1;
+    color: #b13e3e;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: 0.15s;
+    line-height: 1;
+    padding: 0;
+  }
+  .del-person-btn:hover { background: #ffd6d6; transform: scale(1.1); }
 
   .empty { color: #9eb7cf; font-style: italic; font-size: 0.9rem; text-align: center; padding: 1.2rem 0; }
   .nomatch { color: #9eb7cf; font-style: italic; text-align: center; padding: 2rem 0; background: #f6faff; border-radius: 1.5rem; border: 1px dashed #d4e2f0; }
@@ -108,7 +130,7 @@
     </div>
 
     <div class="panel">
-      <h3>🛡️ 小队管理</h3>
+      <h3>🛡️ 小队管理 <span style="font-weight:400;color:#7999b6;font-size:0.8rem;">（点 ✕ 可删除小队）</span></h3>
       <div class="team-list" id="teamList"></div>
       <div style="display:flex; gap:0.6rem; flex-wrap:wrap;">
         <input type="text" id="newTeamName" placeholder="输入小队名字" style="padding:0.65rem 1rem;border:1.5px solid #cbdae8;border-radius:3rem;font-size:0.9rem;outline:none;" />
@@ -148,7 +170,6 @@
   const SUPABASE_KEY = 'sb_publishable_xXHfeQ8mBfy_92MH59xDdg_01llQFJ4';
   const ROW_ID = 'main';
 
-  // 多个 CDN 备用
   let createClient = null;
   const CDNS = [
     'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm',
@@ -200,7 +221,7 @@
     } catch (e) {
       console.error(e);
       setStatus('err', '连接失败');
-      $('personsContainer').innerHTML = `<div class="empty">❌ 加载失败：${e.message}<br><br>请检查网络是否能访问 Supabase</div>`;
+      $('personsContainer').innerHTML = `<div class="empty">❌ 加载失败：${e.message}</div>`;
     }
   }
 
@@ -282,7 +303,7 @@
   function renderTeams() {
     $('teamList').innerHTML = teams.length === 0
       ? '<span style="color:#9eb7cf;font-size:0.85rem;font-style:italic;">还没有小队</span>'
-      : teams.map(t => `<span class="chip">🛡️ ${esc(t.name)}<button data-tid="${t.id}">✕</button></span>`).join('');
+      : teams.map(t => `<span class="chip">🛡️ ${esc(t.name)}<button data-tid="${t.id}" title="删除小队">✕</button></span>`).join('');
     const cur = $('newPersonTeam').value;
     $('newPersonTeam').innerHTML = '<option value="">无小队</option>' +
       teams.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('');
@@ -327,6 +348,7 @@
       const hl = kw ? 'hl' : '';
       return `
         <div class="person ${hl}" data-name="${esc(p.name)}">
+          <button class="del-person-btn" data-del-name="${esc(p.name)}" title="删除成员">✕</button>
           <div class="pinfo">
             <div class="pname">${esc(p.name)}<span class="badge">🎯 最高 ${p.maxPoints}</span>${t ? `<span class="tname">🛡️ ${esc(t.name)}</span>` : ''}</div>
             <div class="pstats">
@@ -343,11 +365,24 @@
         </div>`;
     }).join('');
 
+    // 用一个统一的 click 事件处理所有按钮
     $('personsContainer').onclick = e => {
+      // 删除成员
+      const delBtn = e.target.closest('.del-person-btn');
+      if (delBtn) {
+        const name = delBtn.dataset.delName;
+        if (!name) return;
+        if (!confirm(`确定删除成员「${name}」吗？此操作不可恢复。`)) return;
+        persons = persons.filter(p => p.name !== name);
+        render(); save();
+        return;
+      }
+
       const btn = e.target.closest('button');
       if (!btn) return;
       const name = btn.dataset.name;
       if (!name) return;
+
       if (btn.classList.contains('add-btn')) {
         const v = Number(btn.closest('.ag').querySelector('.add-input').value);
         if (!v || v <= 0) return alert('请输入大于0的数');
@@ -377,6 +412,7 @@
       }
     };
 
+    // 成员切换小队
     document.querySelectorAll('.member-team-select').forEach(sel => {
       sel.onchange = e => {
         const i = findP(sel.dataset.name);
@@ -427,7 +463,7 @@
     }).join('');
   }
 
-  // 事件绑定
+  // 添加成员
   $('addPersonBtn').onclick = () => {
     const name = $('newPersonName').value.trim();
     const teamId = $('newPersonTeam').value;
@@ -439,6 +475,7 @@
   };
   $('newPersonName').onkeypress = e => { if (e.key === 'Enter') $('addPersonBtn').click(); };
 
+  // 添加小队
   $('addTeamBtn').onclick = () => {
     const name = $('newTeamName').value.trim();
     if (!name) return alert('请输入小队名字');
@@ -449,24 +486,31 @@
   };
   $('newTeamName').onkeypress = e => { if (e.key === 'Enter') $('addTeamBtn').click(); };
 
+  // 重置全部
   $('resetAllBtn').onclick = () => {
-    if (!confirm('确定清空所有数据吗？')) return;
+    if (!confirm('确定清空所有数据吗？此操作不可恢复！')) return;
     persons = []; teams = []; history = [];
     render(); save();
   };
 
+  // 删除小队
   $('teamList').onclick = e => {
     const btn = e.target.closest('button[data-tid]');
     if (!btn) return;
     const tid = btn.dataset.tid;
     const t = findT(tid);
     if (!t) return;
-    if (!confirm(`删除小队「${t.name}」？队内成员将变为无小队`)) return;
+    const members = persons.filter(p => p.teamId === tid);
+    const msg = members.length
+      ? `删除小队「${t.name}」？队内 ${members.length} 名成员将变为「无小队」。`
+      : `删除小队「${t.name}」？`;
+    if (!confirm(msg)) return;
     teams = teams.filter(x => x.id !== tid);
     persons.forEach(p => { if (p.teamId === tid) p.teamId = ''; });
     render(); save();
   };
 
+  // 搜索
   $('searchInput').oninput = e => { keyword = e.target.value.trim().toLowerCase(); renderPersons(); };
   $('searchClear').onclick = () => { $('searchInput').value = ''; keyword = ''; renderPersons(); };
 
